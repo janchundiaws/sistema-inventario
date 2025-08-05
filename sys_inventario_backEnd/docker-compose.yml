@@ -1,0 +1,88 @@
+version: '3.8'
+
+services:
+  # Base de datos MySQL
+  mysql:
+    image: mysql:8.0
+    container_name: sys_inventario_db
+    environment:
+      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_DATABASE: sys_inventario
+      MYSQL_USER: inventario
+      MYSQL_PASSWORD: inventario123
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./bd_mysql.sql:/docker-entrypoint-initdb.d/01-init.sql
+    ports:
+      - "3306:3306"
+    networks:
+      - inventario_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$$MYSQL_ROOT_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Aplicación Node.js
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: sys_inventario_app
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: sys_inventario
+      DB_USER: root
+      DB_PASSWORD: root123
+      JWT_SECRET: tu_jwt_secret_super_seguro_aqui
+      SWAGGER_TITLE: Sistema de Inventario API
+      SWAGGER_DESCRIPTION: API para gestión de inventario
+      SWAGGER_VERSION: 1.0.0
+    ports:
+      - "3000:3000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - inventario_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Script de inicialización de datos (opcional)
+  init-db:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: deps-dev
+    container_name: sys_inventario_init
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: sys_inventario
+      DB_USER: root
+      DB_PASSWORD: root123
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - inventario_network
+    command: ["node", "src/scripts/initDb.js"]
+    restart: "no"
+
+volumes:
+  mysql_data:
+    driver: local
+
+networks:
+  inventario_network:
+    driver: bridge 
